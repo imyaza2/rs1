@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { GoogleGenAI } from "@google/genai";
@@ -153,7 +152,7 @@ const dataURItoBlob = (dataURI: string) => {
 
 // --- Components ---
 
-const SidebarItem = ({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) => (
+const SidebarItem: React.FC<{ icon: string; label: string; active: boolean; onClick: () => void }> = ({ icon, label, active, onClick }) => (
   <button
     onClick={onClick}
     className={`w-full flex items-center space-x-3 space-x-reverse px-4 py-3 rounded-lg transition-colors ${
@@ -165,7 +164,7 @@ const SidebarItem = ({ icon, label, active, onClick }: { icon: string; label: st
   </button>
 );
 
-const Card = ({ children, title, className = "", action }: { children: React.ReactNode; title?: string; className?: string, action?: React.ReactNode }) => (
+const Card: React.FC<{ children?: React.ReactNode; title?: string; className?: string, action?: React.ReactNode }> = ({ children, title, className = "", action }) => (
   <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${className}`}>
     {(title || action) && <div className="flex justify-between items-center mb-4 border-b pb-2 border-gray-100">
         {title && <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
@@ -589,7 +588,7 @@ const ManualPost = ({ addToQueue, settings, channels }: { addToQueue: any, setti
     }).filter(t => t !== null) as QueueTarget[];
 
     if (files && files.length > 0) {
-        const promises = Array.from(files).map(file => {
+        const promises = (Array.from(files) as File[]).map((file: File) => {
             return new Promise<{url: string, type: 'photo'|'video'}>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = (e) => resolve({

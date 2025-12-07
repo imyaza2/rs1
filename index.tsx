@@ -1,31 +1,26 @@
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { GoogleGenAI } from "@google/genai";
 
-// Modular Imports
+// Modular Imports - Using strict relative paths
 import { 
     Log, LogLevel, Channel, Feed, QueueItem, 
-    Settings, FeedRouting, QueueTarget, AdvancedSettings 
+    Settings
 } from "./src/types";
 
-import { Card } from "./src/components/ui/Card";
-import { Badge } from "./src/components/ui/Badge";
 import { Dashboard } from "./src/features/dashboard/Dashboard";
 import { ChannelManager } from "./src/features/channels/ChannelManager";
 import { FeedsManager } from "./src/features/feeds/FeedsManager";
 import { ManualPost } from "./src/features/post/ManualPost";
 import { QueueView } from "./src/features/queue/QueueView";
-// Ensure relative path
 import { SettingsView } from "./src/features/settings/SettingsView";
 import { Login } from "./src/features/auth/Login";
 import { SocialDownloader } from "./src/features/social/SocialDownloader";
 
-// --- Mock Data ---
+// --- Mock / Initial Data ---
 
 const INITIAL_CHANNELS: Channel[] = [
   { id: "c1", name: "Tech News Main", platform: "telegram", chatId: "@tech_main", captionTemplate: "{{title}}\n\n#News" },
-  { id: "c2", name: "Tech Bale Mirror", platform: "bale", chatId: "@tech_bale", captionTemplate: "خبر جدید:\n{{title}}" },
 ];
 
 const INITIAL_FEEDS: Feed[] = [
@@ -36,12 +31,12 @@ const INITIAL_FEEDS: Feed[] = [
     status: "active", 
     errorCount: 0, 
     lastChecked: "10 mins ago",
-    routing: { general: ["c1", "c2"], images: ["c1"], videos: ["c1"] }
+    routing: { general: ["c1"], images: ["c1"], videos: ["c1"] }
   }
 ];
 
 const INITIAL_LOGS: Log[] = [
-  { id: "1", timestamp: "10:30:01", level: "INFO", message: "System initialized. Multi-channel routing engine ready." },
+  { id: "1", timestamp: "System", level: "INFO", message: "System initialized ready." },
 ];
 
 const INITIAL_QUEUE: QueueItem[] = [];
@@ -113,7 +108,6 @@ const App = () => {
   };
 
   const addToQueue = (item: Omit<QueueItem, "id" | "addedAt" | "status" | "retryCount">) => {
-    // Lookup latest template for channels if not explicitly set in targets
     const enrichedTargets = item.targets.map(target => {
         const channelConfig = channels.find(c => c.chatId === target.chatId && c.platform === target.platform);
         return {
@@ -150,7 +144,6 @@ const App = () => {
         const { telegramBotToken, baleBotToken, advanced } = settings;
         const media = pendingItem.mediaUrls;
         
-        // Split into chunks of 10
         const chunks = [];
         for (let i = 0; i < media.length && chunks.length < 3; i += 10) {
             chunks.push(media.slice(i, i + 10));
@@ -159,8 +152,8 @@ const App = () => {
         for (const target of pendingItem.targets) {
             const isTelegram = target.platform === 'telegram';
             const botToken = target.token || (isTelegram ? telegramBotToken : baleBotToken);
-            // Default proxy to corsproxy.io if not running in CF Pages Function environment
-            const proxyBase = settings.advanced.rssFetchInterval > 0 ? '/api/proxy?target=' : 'https://corsproxy.io/?'; 
+            // In Cloudflare Pages, use local API route
+            const proxyBase = '/api/proxy?target='; 
             
             const baseUrl = isTelegram ? `https://api.telegram.org/bot${botToken}` : `https://tapi.bale.ai/bot${botToken}`;
 
@@ -169,15 +162,13 @@ const App = () => {
                 continue;
             }
 
-            // --- Template Processing ---
-            // Process the caption based on the target channel's template
             const template = target.captionTemplate || "{{title}}";
             let finalCaption = template
                 .replace(/{{title}}/g, pendingItem.title || "")
                 .replace(/{{link}}/g, pendingItem.link || "")
                 .replace(/{{source}}/g, pendingItem.source || "")
                 .replace(/{{date}}/g, new Date().toLocaleDateString('fa-IR'))
-                .replace(/{{hashtags}}/g, '#News'); // Logic to generate hashtags can be improved
+                .replace(/{{hashtags}}/g, '#News');
 
             for (let i = 0; i < chunks.length; i++) {
                 const chunk = chunks[i];
@@ -198,7 +189,6 @@ const App = () => {
                         mediaObj.media = m.url;
                     }
 
-                    // Attach caption ONLY to the first item of the first chunk
                     if (idx === 0 && i === 0) {
                         mediaObj.caption = finalCaption;
                     }
@@ -208,7 +198,6 @@ const App = () => {
                 formData.append('media', JSON.stringify(mediaArray));
                 
                 try {
-                    // Use the proxy endpoint
                     const targetEndpoint = `${baseUrl}/sendMediaGroup`;
                     const fetchUrl = `${proxyBase}${encodeURIComponent(targetEndpoint)}`;
                     
@@ -218,11 +207,10 @@ const App = () => {
                     });
                     
                     if (!response.ok) {
-                         // Check for specific error body
                          const errorText = await response.text();
                          throw new Error(`${target.platform} ${response.status}: ${errorText.substring(0, 50)}`);
                     }
-                } catch (e) {
+                } catch (e: any) {
                      console.error(e);
                      throw e; 
                 }

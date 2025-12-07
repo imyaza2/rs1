@@ -1,10 +1,14 @@
 
-// Polyfill for KVNamespace and PagesFunction
+// Type definitions for Cloudflare Pages Functions
 interface KVNamespace {
   get(key: string, options?: { type?: "text" | "json" | "arrayBuffer" | "stream"; cacheTtl?: number }): Promise<any>;
   put(key: string, value: string | ReadableStream | ArrayBuffer | FormData, options?: { expiration?: number; expirationTtl?: number; metadata?: any }): Promise<void>;
   delete(key: string): Promise<void>;
   list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string; expiration?: number; metadata?: any }[]; list_complete: boolean; cursor?: string }>;
+}
+
+interface Env {
+  DB: KVNamespace;
 }
 
 type PagesFunction<Env = unknown, P extends string = string, Data = unknown> = (
@@ -22,10 +26,6 @@ interface EventContext<Env, P extends string, Data> {
   data: Data;
 }
 
-interface Env {
-  DB: KVNamespace;
-}
-
 export const onRequestGet: PagesFunction<Env> = async (context) => {
   const url = new URL(context.request.url);
   const key = url.searchParams.get("key");
@@ -34,11 +34,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   // Critical Check: Ensure KV binding exists
   if (!context.env.DB) {
-      console.error("KV Binding 'DB' is missing.");
-      return new Response(JSON.stringify({ 
-          error: "KV Binding 'DB' not found. Please go to Cloudflare Dashboard > Pages > Settings > Functions and bind a KV Namespace to variable 'DB'." 
-      }), { 
-          status: 500,
+      console.error("CRITICAL: KV Binding 'DB' is missing. Please check Cloudflare Dashboard > Settings > Functions > KV Namespace Bindings.");
+      // Return a 200 OK with null value to prevent frontend crash, but log error on server
+      return new Response(JSON.stringify({ value: null, error: "KV_BINDING_MISSING" }), {
           headers: { "Content-Type": "application/json" } 
       });
   }
@@ -49,18 +47,17 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       headers: { "Content-Type": "application/json" }
     });
   } catch (e: any) {
+    console.error("KV GET Error:", e);
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
-    // Critical Check: Ensure KV binding exists
     if (!context.env.DB) {
-        return new Response(JSON.stringify({ 
-            error: "KV Binding 'DB' not found. Please check Cloudflare Pages Settings." 
-        }), { 
-            status: 500,
+        console.error("CRITICAL: KV Binding 'DB' is missing. Cannot write data.");
+        return new Response(JSON.stringify({ success: false, error: "KV_BINDING_MISSING" }), { 
+            status: 200,
             headers: { "Content-Type": "application/json" } 
         });
     }
@@ -69,13 +66,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     
     if (!key) return new Response("Key required", { status: 400 });
 
-    // Save to KV
     await context.env.DB.put(key, JSON.stringify(value));
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { "Content-Type": "application/json" }
     });
   } catch (e: any) {
+    console.error("KV PUT Error:", e);
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
 };

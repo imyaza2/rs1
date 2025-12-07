@@ -40,7 +40,19 @@ export async function sendViaProxy(baseUrl: string, endpoint: string, formData: 
 export async function getKV(key: string): Promise<any> {
   try {
     const res = await fetch(`/api/kv?key=${encodeURIComponent(key)}`);
-    if (!res.ok) return null;
+    // If API endpoint doesn't exist (e.g. static host without functions) or fails
+    if (!res.ok) {
+        if(res.status !== 404) console.warn(`KV Fetch failed: ${res.status}`);
+        return null;
+    }
+    
+    // Check content type before parsing JSON
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        // This happens if Cloudflare returns a text/html error page
+        return null;
+    }
+
     const data = await res.json();
     return data.value;
   } catch (e) {
@@ -51,11 +63,15 @@ export async function getKV(key: string): Promise<any> {
 
 export async function setKV(key: string, value: any): Promise<void> {
   try {
-    await fetch('/api/kv', {
+    const res = await fetch('/api/kv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key, value })
     });
+    
+    if (!res.ok) {
+        console.warn("KV Write failed", res.status);
+    }
   } catch (e) {
     console.error("KV Write Error:", e);
   }

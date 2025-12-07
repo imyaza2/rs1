@@ -22,6 +22,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   define: {
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
+    // Safely handle the API_KEY, defaulting to empty string if undefined to prevent build errors
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY || '')
   }
 });

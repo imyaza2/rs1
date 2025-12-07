@@ -1,3 +1,4 @@
+
 // Polyfill for KVNamespace and PagesFunction
 interface KVNamespace {
   get(key: string, options?: { type?: "text" | "json" | "arrayBuffer" | "stream"; cacheTtl?: number }): Promise<any>;
@@ -31,6 +32,17 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   if (!key) return new Response("Key required", { status: 400 });
 
+  // Critical Check: Ensure KV binding exists
+  if (!context.env.DB) {
+      console.error("KV Binding 'DB' is missing.");
+      return new Response(JSON.stringify({ 
+          error: "KV Binding 'DB' not found. Please go to Cloudflare Dashboard > Pages > Settings > Functions and bind a KV Namespace to variable 'DB'." 
+      }), { 
+          status: 500,
+          headers: { "Content-Type": "application/json" } 
+      });
+  }
+
   try {
     const value = await context.env.DB.get(key);
     return new Response(JSON.stringify({ value: value ? JSON.parse(value) : null }), {
@@ -43,11 +55,21 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
+    // Critical Check: Ensure KV binding exists
+    if (!context.env.DB) {
+        return new Response(JSON.stringify({ 
+            error: "KV Binding 'DB' not found. Please check Cloudflare Pages Settings." 
+        }), { 
+            status: 500,
+            headers: { "Content-Type": "application/json" } 
+        });
+    }
+
     const { key, value } = await context.request.json() as { key: string, value: any };
     
     if (!key) return new Response("Key required", { status: 400 });
 
-    // ذخیره در KV
+    // Save to KV
     await context.env.DB.put(key, JSON.stringify(value));
 
     return new Response(JSON.stringify({ success: true }), {

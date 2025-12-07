@@ -1,6 +1,21 @@
-
 interface Env {
   // Add environment variables here if needed
+}
+
+// Polyfill for PagesFunction to avoid type errors when workers-types is not loaded in the global scope
+type PagesFunction<Env = unknown, P extends string = string, Data = unknown> = (
+  context: EventContext<Env, P, Data>
+) => Response | Promise<Response>;
+
+interface EventContext<Env, P extends string, Data> {
+  request: Request;
+  functionPath: string;
+  waitUntil: (promise: Promise<any>) => void;
+  passThroughOnException: () => void;
+  next: (input?: Request | string, init?: RequestInit) => Promise<Response>;
+  env: Env;
+  params: Record<P, string | string[]>;
+  data: Data;
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {

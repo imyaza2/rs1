@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Feed, Channel, QueueItem, LogLevel, FeedRouting, QueueTarget, Settings } from '../../types';
+import { fetchRSS } from '../../lib/rss';
 
 interface FeedConfigModalProps {
   feed: Feed;
@@ -96,6 +97,7 @@ export const FeedsManager: React.FC<FeedsManagerProps> = ({
 }) => {
   const [newUrl, setNewUrl] = useState("");
   const [editingFeed, setEditingFeed] = useState<Feed | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleAddFeed = () => {
     if (newUrl) {
@@ -107,7 +109,7 @@ export const FeedsManager: React.FC<FeedsManagerProps> = ({
             url: newUrl,
             status: "active",
             errorCount: 0,
-            lastChecked: "Just now",
+            lastChecked: "Never",
             routing: { general: [], images: [], videos: [] }
         };
         setFeeds([...feeds, newFeed]);
@@ -124,63 +126,79 @@ export const FeedsManager: React.FC<FeedsManagerProps> = ({
     addLog("INFO", `تنظیمات فید ${updatedFeed.name} بروزرسانی شد.`);
   };
 
-  const simulateFetch = async (feed: Feed) => {
-    addLog("INFO", `Fetching ${feed.name}...`);
-    // Simulated fetch delay
-    await new Promise(r => setTimeout(r, 800));
-
-    const rand = Math.random();
-    let type: 'image' | 'video' | 'text' = 'text';
-    if (rand > 0.7) type = 'video';
-    else if (rand > 0.3) type = 'image';
-
-    const mockMedia: { url: string; type: "photo" | "video" }[] = [];
+  const checkFeed = async (feed: Feed) => {
+    setIsLoading(true);
+    addLog("INFO", `Fetching RSS: ${feed.name}...`);
     
-    if (type === 'image') {
-       const count = Math.floor(Math.random() * 10) + 5;
-       for(let i=0; i<count; i++) mockMedia.push({ url: `https://picsum.photos/800/600?r=${Date.now()+i}`, type: 'photo' });
-    } else if (type === 'video') {
-       mockMedia.push({ url: 'https://www.w3schools.com/html/mov_bbb.mp4', type: 'video' });
-    }
+    try {
+        const items = await fetchRSS(feed.url);
+        addLog("SUCCESS", `Parsed ${items.length} items from ${feed.name}`);
 
-    addLog("SUCCESS", `Fetched: Type=${type.toUpperCase()}, Items=${mockMedia.length}`);
+        // Limit to 5 newest items for manual check to avoid spamming
+        const newestItems = items.slice(0, 5);
+        
+        for (const item of newestItems) {
+            // Determine Type
+            const hasVideo = item.media.some(m => m.type === 'video');
+            const hasImage = item.media.some(m => m.type === 'photo');
+            
+            let targetChannelIds: string[] = [];
+            let contentTypeLog = 'Text';
 
-    // Resolve Destinations based on Channel IDs
-    let targetChannelIds: string[] = [];
-
-    // 1. Try Specific Type Routing
-    if (type === 'image') targetChannelIds = feed.routing.images;
-    else if (type === 'video') targetChannelIds = feed.routing.videos;
-
-    // 2. Fallback to General if specific is empty
-    if (targetChannelIds.length === 0) {
-        targetChannelIds = feed.routing.general;
-    }
-
-    const resolvedTargets: QueueTarget[] = [];
-    
-    targetChannelIds.forEach(cid => {
-        const channel = channels.find(c => c.id === cid);
-        if (channel) {
-            resolvedTargets.push({
-                platform: channel.platform,
-                chatId: channel.chatId,
-                token: channel.token // Pass token if exists
+            if (hasVideo) {
+                targetChannelIds = feed.routing.videos;
+                contentTypeLog = 'Video';
+            } else if (hasImage) {
+                targetChannelIds = feed.routing.images;
+                contentTypeLog = 'Image';
+            }
+            
+            // Fallback to General
+            if (targetChannelIds.length === 0) {
+                targetChannelIds = feed.routing.general;
+            }
+            
+            // Resolve Targets
+            const resolvedTargets: QueueTarget[] = [];
+            targetChannelIds.forEach(cid => {
+                const channel = channels.find(c => c.id === cid);
+                if (channel) {
+                    resolvedTargets.push({
+                        platform: channel.platform,
+                        chatId: channel.chatId,
+                        token: channel.token,
+                        captionTemplate: channel.captionTemplate
+                    });
+                }
             });
+
+            if (resolvedTargets.length > 0) {
+                 addToQueue({
+                    title: item.title,
+                    source: feed.name,
+                    link: item.link,
+                    mediaUrls: item.media,
+                    targets: resolvedTargets
+                });
+            }
         }
-    });
+        
+        // Update Feed Status
+        const updatedFeed = { ...feed, lastChecked: new Date().toLocaleTimeString('fa-IR'), status: 'active' as const, errorCount: 0 };
+        setFeeds(prev => prev.map(f => f.id === feed.id ? updatedFeed : f));
 
-    if (resolvedTargets.length === 0) {
-      addLog("WARN", `محتوا (${type}) یافت شد اما هیچ کانالی برای آن تنظیم نشده است.`);
-      return;
+    } catch (error: any) {
+        addLog("ERROR", `Failed to fetch ${feed.name}: ${error.message}`);
+        const updatedFeed = { 
+            ...feed, 
+            status: 'error' as const, 
+            errorCount: feed.errorCount + 1,
+            lastChecked: new Date().toLocaleTimeString('fa-IR')
+        };
+        setFeeds(prev => prev.map(f => f.id === feed.id ? updatedFeed : f));
+    } finally {
+        setIsLoading(false);
     }
-
-    addToQueue({
-        title: `Simulated ${type.toUpperCase()} Post from ${feed.name}`,
-        source: feed.name,
-        mediaUrls: mockMedia,
-        targets: resolvedTargets
-    });
   };
 
   return (
@@ -191,39 +209,52 @@ export const FeedsManager: React.FC<FeedsManagerProps> = ({
             type="text"
             value={newUrl}
             onChange={(e) => setNewUrl(e.target.value)}
-            placeholder="New RSS URL..."
+            placeholder="https://example.com/feed.xml"
             className="flex-1 border rounded-lg px-4 py-2 dir-ltr"
           />
-          <button onClick={handleAddFeed} className="bg-blue-600 text-white px-6 py-2 rounded-lg">Add</button>
+          <button onClick={handleAddFeed} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">افزودن</button>
         </div>
 
         <div className="space-y-3">
           {feeds.map((feed) => (
             <div key={feed.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-100 gap-4">
               <div className="flex items-center space-x-4 space-x-reverse">
-                <div className={`w-2 h-2 rounded-full ${feed.status === 'active' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <div className={`w-3 h-3 rounded-full ${feed.status === 'active' ? 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
                 <div>
-                  <h4 className="font-bold text-gray-800">{feed.name}</h4>
-                  <div className="flex gap-2 mt-1 flex-wrap">
-                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded">Gen: {feed.routing.general.length}</span>
-                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded">Img: {feed.routing.images.length}</span>
-                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded">Vid: {feed.routing.videos.length}</span>
+                  <h4 className="font-bold text-gray-800 text-sm md:text-base">{feed.name}</h4>
+                  <div className="flex gap-2 mt-2 flex-wrap items-center">
+                      <span className="text-[10px] text-gray-500 bg-white border px-1.5 py-0.5 rounded dir-ltr">{feed.lastChecked}</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Gen: {feed.routing.general.length}</span>
+                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Img: {feed.routing.images.length}</span>
+                      <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">Vid: {feed.routing.videos.length}</span>
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 justify-end">
-                <button onClick={() => setEditingFeed(feed)} className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">
-                   <i className="fas fa-sitemap mr-1"></i> مسیردهی
+                <button 
+                    onClick={() => setEditingFeed(feed)} 
+                    className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded hover:bg-gray-100 text-sm transition-colors shadow-sm"
+                >
+                   <i className="fas fa-sitemap mr-1 text-blue-500"></i> مسیردهی
                 </button>
-                <button onClick={() => simulateFetch(feed)} className="p-2 text-blue-600 hover:bg-blue-100 rounded">
-                  <i className="fas fa-sync-alt"></i>
+                <button 
+                    onClick={() => checkFeed(feed)} 
+                    disabled={isLoading}
+                    className={`p-2 text-blue-600 hover:bg-blue-50 rounded transition-all ${isLoading ? 'opacity-50' : ''}`}
+                    title="بروزرسانی فوری"
+                >
+                  <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`}></i>
                 </button>
-                <button onClick={() => setFeeds(feeds.filter(f => f.id !== feed.id))} className="p-2 text-red-500 hover:bg-red-100 rounded">
+                <button 
+                    onClick={() => setFeeds(feeds.filter(f => f.id !== feed.id))} 
+                    className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                >
                     <i className="fas fa-trash"></i>
                 </button>
               </div>
             </div>
           ))}
+          {feeds.length === 0 && <div className="text-center text-gray-400 py-8 text-sm">هیچ فیدی تعریف نشده است.</div>}
         </div>
       </Card>
       

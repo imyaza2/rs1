@@ -14,6 +14,7 @@ export interface Channel {
   platform: "telegram" | "bale";
   chatId: string;
   token?: string;
+  captionTemplate?: string; // New: Custom template for this channel
 }
 
 export interface FeedRouting {
@@ -36,12 +37,14 @@ export interface QueueTarget {
   platform: "telegram" | "bale";
   chatId: string;
   token?: string;
+  captionTemplate?: string; // Resolved template at queue time
 }
 
 export interface QueueItem {
   id: string;
-  title: string;
+  title: string; // This acts as the raw text/caption
   source: string;
+  link?: string; // Source URL for template injection
   addedAt: string;
   status: "pending" | "processing" | "completed" | "failed";
   mediaUrls: { url: string; type: "photo" | "video" }[];
@@ -64,4 +67,6 @@ export interface Settings {
   telegramBotToken: string;
   baleBotToken: string;
   advanced: AdvancedSettings;
+  adminUsername?: string;
+  adminPassword?: string;
 }
